@@ -2,8 +2,6 @@
 
 from __future__ import unicode_literals
 
-import warnings
-
 from monty.io import zopen
 from monty.os.path import zpath
 
@@ -23,7 +21,7 @@ from collections import OrderedDict, defaultdict
 from itertools import chain
 from tqdm import tqdm
 from bson import ObjectId
-
+from testEmail import  Emailer
 from pymongo import MongoClient
 from pymongo import DESCENDING, ASCENDING
 from pymongo.errors import DocumentTooLarge
@@ -37,13 +35,13 @@ from fireworks.core.firework import Firework, Launch, Workflow, FWAction, Tracke
 from fireworks.utilities.fw_utilities import get_fw_logger
 from fireworks.utilities.fw_serializers import recursive_dict
 
+
 __author__ = 'Anubhav Jain'
 __copyright__ = 'Copyright 2013, The Materials Project'
 __version__ = '0.1'
 __maintainer__ = 'Anubhav Jain'
 __email__ = 'ajain@lbl.gov'
 __date__ = 'Jan 30, 2013'
-
 
 # TODO: lots of duplication reduction and cleanup possible
 
@@ -86,7 +84,7 @@ class WFLock(object):
         # could not acquire lock b/c WF is already locked for writing
         while not links_dict:
             ctr += 1
-            time_incr = ctr / 10.0 + random.random() / 100.0
+            time_incr = ctr/10.0+random.random()/100.0
             time.sleep(time_incr)  # wait a bit for lock to free up
             waiting_time += time_incr
             if waiting_time > self.expire_secs:  # too much time waiting, expire lock
@@ -119,9 +117,7 @@ class LaunchPad(FWSerializable):
                  authsource=None, uri_mode=False):
         """
         Args:
-            host (str): hostname. If uri_mode is True, a MongoDB connection string URI
-                (https://docs.mongodb.com/manual/reference/connection-string/) can be used instead of the remaining
-                options below.
+            host (str): hostname. If uri_mode is True, a MongoDB connection string URI (https://docs.mongodb.com/manual/reference/connection-string/) can be used instead of the remaining options below.
             port (int): port number
             name (str): database name
             username (str)
@@ -135,10 +131,8 @@ class LaunchPad(FWSerializable):
             ssl_certfile (str): path to the client certificate to be used for mongodb connection
             ssl_keyfile (str): path to the client private key
             ssl_pem_passphrase (str): passphrase for the client private key
-            authsource (str): authsource parameter for MongoDB authentication; defaults to "name" (i.e., db name) if
-                not set
-            uri_mode (bool): if set True, all Mongo connection parameters occur through a MongoDB URI string (set as
-                the host).
+            authsource (str): authsource parameter for MongoDB authentication; defaults to "name" (i.e., db name) if not set
+            uri_mode (bool): if set True, all Mongo connection parameters occur through a MongoDB URI string (set as the host).
         """
 
         self.host = host if (host or uri_mode) else "localhost"
@@ -157,8 +151,12 @@ class LaunchPad(FWSerializable):
         # set up logger
         self.logdir = logdir
         self.strm_lvl = strm_lvl if strm_lvl else 'INFO'
+        print("Log directory: " + str(logdir))
+        print("Stream level: " + str(self.strm_lvl))
+
         self.m_logger = get_fw_logger('launchpad', l_dir=self.logdir, stream_level=self.strm_lvl)
 
+        print("Logger" + str(self.m_logger.name))
         self.user_indices = user_indices if user_indices else []
         self.wf_user_indices = wf_user_indices if wf_user_indices else []
 
@@ -229,7 +227,7 @@ class LaunchPad(FWSerializable):
         if mongo:
             mod_spec = spec_document
         else:
-            mod_spec = {"$set": {("spec." + k): v for k, v in spec_document.items()}}
+            mod_spec = {"$set": {("spec." + k): v for k, v in spec_document.items()} }
 
         allowed_states = ["READY", "WAITING", "FIZZLED", "DEFUSED", "PAUSED"]
         self.fireworks.update_many({'fw_id': {"$in": fw_ids},
@@ -237,7 +235,7 @@ class LaunchPad(FWSerializable):
         for fw in self.fireworks.find({'fw_id': {"$in": fw_ids}, 'state': {"$nin": allowed_states}},
                                       {"fw_id": 1, "state": 1}):
             self.m_logger.warning("Cannot update spec of fw_id: {} with state: {}. "
-                                  "Try rerunning first".format(fw['fw_id'], fw['state']))
+                               "Try rerunning first".format(fw['fw_id'], fw['state']))
 
     @classmethod
     def from_dict(cls, d):
@@ -250,12 +248,11 @@ class LaunchPad(FWSerializable):
         user_indices = d.get('user_indices', [])
         wf_user_indices = d.get('wf_user_indices', [])
         ssl = d.get('ssl', False)
-        ssl_ca_certs = d.get('ssl_ca_certs',
-                             d.get('ssl_ca_file', None))  # ssl_ca_file was the old notation for FWS < 1.5.5
+        ssl_ca_certs = d.get('ssl_ca_certs', d.get('ssl_ca_file', None))  # ssl_ca_file was the old notation for FWS < 1.5.5
         ssl_certfile = d.get('ssl_certfile', None)
         ssl_keyfile = d.get('ssl_keyfile', None)
         ssl_pem_passphrase = d.get('ssl_pem_passphrase', None)
-        authsource = d.get('authsource', None)
+        authsource= d.get('authsource', None)
         uri_mode = d.get('uri_mode', False)
         return LaunchPad(d['host'], port, name, username, password,
                          logdir, strm_lvl, user_indices, wf_user_indices, ssl,
@@ -296,8 +293,8 @@ class LaunchPad(FWSerializable):
             self.m_logger.info('LaunchPad was RESET.')
         elif not require_password:
             raise ValueError("Password check cannot be overridden since the size of DB ({} workflows) "
-                             "is greater than the max_reset_wo_password parameter ({}).".format(self.fireworks.count(),
-                                                                                                max_reset_wo_password))
+                             "is greater than the max_reset_wo_password parameter ({}).".format(
+                self.fireworks.count(), max_reset_wo_password))
         else:
             raise ValueError("Invalid password! Password is today's date: {}".format(m_password))
 
@@ -451,13 +448,11 @@ class LaunchPad(FWSerializable):
         if not fw_dict:
             raise ValueError('No Firework exists with id: {}'.format(fw_id))
         # recreate launches from the launch collection
-        launches = list(self.launches.find({'launch_id': {"$in": fw_dict['launches']}},
-                                           sort=[("launch_id", ASCENDING)]))
+        launches = list(self.launches.find({'launch_id': {"$in": fw_dict['launches']}}))
         for l in launches:
             l["action"] = get_action_from_gridfs(l.get("action"), self.gridfs_fallback)
         fw_dict['launches'] = launches
-        launches = list(self.launches.find({'launch_id': {"$in": fw_dict['archived_launches']}},
-                                           sort=[("launch_id", ASCENDING)]))
+        launches = list(self.launches.find({'launch_id': {"$in": fw_dict['archived_launches']}}))
         for l in launches:
             l["action"] = get_action_from_gridfs(l.get("action"), self.gridfs_fallback)
         fw_dict['archived_launches'] = launches
@@ -777,17 +772,17 @@ class LaunchPad(FWSerializable):
             try:
                 self.db.command({'compact': 'fireworks'})
                 self.db.command({'compact': 'launches'})
-            except Exception:
+            except:
                 self.m_logger.debug('Database compaction failed (not critical)')
 
-    def pause_fw(self, fw_id):
+    def pause_fw(self,fw_id):
         """
         Given the firework id, pauses the firework and refresh the workflow
 
         Args:
             fw_id(int): firework id
         """
-        allowed_states = ['WAITING', 'READY', 'RESERVED']
+        allowed_states =  ['WAITING', 'READY', 'RESERVED']
         f = self.fireworks.find_one_and_update(
             {'fw_id': fw_id, 'state': {'$in': allowed_states}},
             {'$set': {'state': 'PAUSED', 'updated_on': datetime.datetime.utcnow()}})
@@ -796,6 +791,7 @@ class LaunchPad(FWSerializable):
         if not f:
             self.m_logger.error('No pausable (WAITING,READY,RESERVED) Firework exists with fw_id: {}'.format(fw_id))
         return f
+
 
     def defuse_fw(self, fw_id, rerun_duplicates=True):
         """
@@ -815,8 +811,8 @@ class LaunchPad(FWSerializable):
         if not f:
             self.rerun_fw(fw_id, rerun_duplicates)
             f = self.fireworks.find_one_and_update(
-                {'fw_id': fw_id, 'state': {'$in': allowed_states}},
-                {'$set': {'state': 'DEFUSED', 'updated_on': datetime.datetime.utcnow()}})
+            {'fw_id': fw_id, 'state': {'$in': allowed_states}},
+            {'$set': {'state': 'DEFUSED', 'updated_on': datetime.datetime.utcnow()}})
             if f:
                 self._refresh_wf(fw_id)
         return f
@@ -972,7 +968,7 @@ class LaunchPad(FWSerializable):
             if checkout:
                 m_fw = self.fireworks.find_one_and_update(m_query,
                                                           {'$set': {'state': 'RESERVED',
-                                                                    'updated_on': datetime.datetime.utcnow()}},
+                                                           'updated_on': datetime.datetime.utcnow()}},
                                                           sort=sortby)
             else:
                 m_fw = self.fireworks.find_one(m_query, {'fw_id': 1, 'spec': 1}, sort=sortby)
@@ -1155,8 +1151,8 @@ class LaunchPad(FWSerializable):
                 m_l = self.get_launch_by_id(ld['launch_id'])
                 utime = m_l._get_time('RUNNING', use_update_time=True)
                 ctime = m_l._get_time('RUNNING', use_update_time=False)
-                if (not max_runtime or (utime - ctime).seconds <= max_runtime) and \
-                        (not min_runtime or (utime - ctime).seconds >= min_runtime):
+                if (not max_runtime or (utime-ctime).seconds <= max_runtime) and \
+                        (not min_runtime or (utime-ctime).seconds >= min_runtime):
                     bad_launch = True
             if bad_launch:
                 lost_launch_ids.append(ld['launch_id'])
@@ -1181,14 +1177,6 @@ class LaunchPad(FWSerializable):
         if fizzle or rerun:
             for lid in lost_launch_ids:
                 self.mark_fizzled(lid)
-
-                # for offline runs, you want to forget about the run
-                # see: https://groups.google.com/forum/#!topic/fireworkflows/oimFmE5tZ4E
-                offline_run = self.offline_runs.find(
-                    {"launch_id": lid, "deprecated": False}).count() > 0
-                if offline_run:
-                    self.forget_offline(lid, launch_mode=True)
-
                 if rerun:
                     fw_id = self.launches.find_one({"launch_id": lid}, {"fw_id": 1})['fw_id']
                     if fw_id in lost_fw_ids:
@@ -1323,9 +1311,12 @@ class LaunchPad(FWSerializable):
         Returns:
             dict: updated launch
         """
+        print("Complete launch. Launch id: " + str(launch_id))
         # update the launch data to COMPLETED, set end time, etc
         m_launch = self.get_launch_by_id(launch_id)
         m_launch.state = state
+        print("Complete m_launch " + str(m_launch.state))
+        print("Action " + str(action))
         if action:
             m_launch.action = action
 
@@ -1348,19 +1339,29 @@ class LaunchPad(FWSerializable):
             # encoding required for python2/3 compatibility.
             action_id = self.gridfs_fallback.put(json.dumps(action_dict), encoding="utf-8",
                                                  metadata={"launch_id": launch_id})
+
+            print("\nAction id after encdoing: " + str(action_id))
+
             launch_db_dict["action"] = {"gridfs_id": str(action_id)}
             self.m_logger.warning("The size of the launch document was too large. Saving "
-                                  "the action in gridfs.")
+                               "the action in gridfs.")
 
             self.launches.find_one_and_replace({'launch_id': m_launch.launch_id},
                                                launch_db_dict, upsert=True)
+
 
         # find all the fws that have this launch
         for fw in self.fireworks.find({'launches': launch_id}, {'fw_id': 1}):
             fw_id = fw['fw_id']
             self._refresh_wf(fw_id)
+        print("Completed launch. Launch id: " + str(launch_id))
+
+        print("Completed m_launch " + str(m_launch.state))
+        print("Actioned " + str(action))
+        Emailer.__init__(self,"hello",launch_id, m_launch.state)
 
         # change return type to dict to make return type serializable to support job packing
+
         return m_launch.to_dict()
 
     def ping_launch(self, launch_id, ptime=None, checkpoint=None):
@@ -1390,7 +1391,7 @@ class LaunchPad(FWSerializable):
         """
         try:
             return self.fw_id_assigner.find_one_and_update({}, {'$inc': {'next_fw_id': quantity}})['next_fw_id']
-        except Exception:
+        except:
             raise ValueError("Could not get next FW id! If you have not yet initialized the database,"
                              " please do so by performing a database reset (e.g., lpad reset)")
 
@@ -1400,7 +1401,7 @@ class LaunchPad(FWSerializable):
         """
         try:
             return self.fw_id_assigner.find_one_and_update({}, {'$inc': {'next_launch_id': 1}})['next_launch_id']
-        except Exception:
+        except:
             raise ValueError("Could not get next launch id! If you have not yet initialized the "
                              "database, please do so by performing a database reset (e.g., lpad reset)")
 
@@ -1426,7 +1427,7 @@ class LaunchPad(FWSerializable):
             # this is the FIRST fw_id we should use
             first_new_id = self.get_new_fw_id(quantity=len(fws))
 
-            for new_id, fw in enumerate(fws, start=first_new_id):
+            for new_id, fw  in enumerate(fws, start=first_new_id):
                 old_new[fw.fw_id] = new_id
                 fw.fw_id = new_id
                 used_ids.append(new_id)
@@ -1456,7 +1457,7 @@ class LaunchPad(FWSerializable):
             recover_launch ('last' or int): launch_id for last recovery, if set to
                 'last' (default), recovery will find the last available launch.
                 If it is an int, will recover that specific launch
-            recover_mode ('prev_dir' or 'cp'): flag to indicate whether to copy
+            recover_mode ('prev_dir' or 'copy'): flag to indicate whether to copy
                 or run recovery fw in previous directory
 
         Returns:
@@ -1472,7 +1473,7 @@ class LaunchPad(FWSerializable):
         reruns = []
         if rerun_duplicates:
             f = self.fireworks.find_one({"fw_id": fw_id, "spec._dupefinder": {"$exists": True}},
-                                        {'launches': 1})
+                                        {'launches':1})
             if f:
                 for d in self.fireworks.find({"launches": {"$in": f['launches']},
                                               "fw_id": {"$ne": fw_id}}, {"fw_id": 1}):
@@ -1491,11 +1492,12 @@ class LaunchPad(FWSerializable):
 
         # If no launch recovery specified, unset the firework recovery spec
         else:
-            set_spec = {"$unset": {"spec._recovery": ""}}
-            self.fireworks.find_one_and_update({"fw_id": fw_id}, set_spec)
+            set_spec = {"$unset":{"spec._recovery":""}}
+            self.fireworks.find_one_and_update({"fw_id":fw_id}, set_spec)
+
 
         # rerun this FW
-        if m_fw['state'] in ['ARCHIVED', 'DEFUSED']:
+        if m_fw['state'] in ['ARCHIVED', 'DEFUSED'] :
             self.m_logger.info("Cannot rerun fw_id: {}: it is {}.".format(fw_id, m_fw['state']))
         elif m_fw['state'] == 'WAITING' and not recover_launch:
             self.m_logger.debug("Skipping rerun fw_id: {}: it is already WAITING.".format(fw_id))
@@ -1550,7 +1552,7 @@ class LaunchPad(FWSerializable):
                 self._update_wf(wf, updated_ids)
         except LockedWorkflowError:
             self.m_logger.info("fw_id {} locked. Can't refresh!".format(fw_id))
-        except Exception:
+        except:
             # some kind of internal error - an example is that fws serialization changed due to
             # code updates and thus the Firework object can no longer be loaded from db description
             # Action: *manually* mark the fw and workflow as FIZZLED
@@ -1618,9 +1620,7 @@ class LaunchPad(FWSerializable):
                 except NotImplementedError:
                     verified = True  # no dupefinder.verify() implemented, skip verification
 
-                except Exception:
-                    # we want to catch any exceptions from testing an empty dict, which the dupefinder might not be
-                    # designed for
+                except:  # we want to catch any exceptions from testing an empty dict, which the dupefinder might not be designed for
                     pass
 
                 if not verified:
@@ -1693,71 +1693,59 @@ class LaunchPad(FWSerializable):
         m_launch = self.get_launch_by_id(launch_id)
         try:
             self.m_logger.debug("RECOVERING fw_id: {}".format(m_launch.fw_id))
+            # look for ping file - update the Firework if this is the case
+            ping_loc = os.path.join(m_launch.launch_dir, "FW_ping.json")
+            if os.path.exists(ping_loc):
+                ping_dict = loadfn(ping_loc)
+                self.ping_launch(launch_id, ptime=ping_dict['ping_time'])
 
+            # look for action in FW_offline.json
             offline_loc = zpath(os.path.join(m_launch.launch_dir,
                                              "FW_offline.json"))
 
             offline_data = loadfn(offline_loc)
-
-            if 'started_on' in offline_data:  # started running at some point
-                already_running = False
+            if 'started_on' in offline_data:
+                m_launch.state = 'RUNNING'
                 for s in m_launch.state_history:
                     if s['state'] == 'RUNNING':
                         s['created_on'] = reconstitute_dates(offline_data['started_on'])
-                        already_running = True
-
-                if not already_running:
-                    m_launch.state = "RUNNING"  # this should also add a history item
-
-                checkpoint = offline_data['checkpoint'] if 'checkpoint' in offline_data else None
-
-                # look for ping file - update the Firework if this is the case
-                ping_loc = os.path.join(m_launch.launch_dir, "FW_ping.json")
-                if os.path.exists(ping_loc):
-                    ping_dict = loadfn(ping_loc)
-                    self.ping_launch(launch_id, ptime=ping_dict['ping_time'], checkpoint=checkpoint)
-                else:
-                    warnings.warn(
-                        "Unable to find FW_ping.json in {}! State history updated_on might be incorrect, trackers "
-                        "may not update.".format(
-                            m_launch.launch_dir))
-                    m_launch.touch_history(checkpoint=checkpoint)
-
-            if 'fwaction' in offline_data:
-                fwaction = FWAction.from_dict(offline_data['fwaction'])
-                m_launch.state = offline_data['state']
-                self.launches.find_one_and_replace(
-                    {'launch_id': m_launch.launch_id}, m_launch.to_db_dict(),
-                    upsert=True)
-
-                m_launch = Launch.from_dict(self.complete_launch(launch_id, fwaction, m_launch.state))
-
-                for s in m_launch.state_history:
-                    if s['state'] == offline_data['state']:
-                        s['created_on'] = reconstitute_dates(offline_data['completed_on'])
-                self.launches.find_one_and_update(
-                    {'launch_id': m_launch.launch_id},
-                    {'$set': {'state_history': m_launch.state_history}})
-
-                self.offline_runs.update_one({"launch_id": launch_id},
-                                             {"$set": {"completed": True}})
-
-            else:
                 l = self.launches.find_one_and_replace({'launch_id': m_launch.launch_id},
                                                        m_launch.to_db_dict(), upsert=True)
                 fw_id = l['fw_id']
                 f = self.fireworks.find_one_and_update({'fw_id': fw_id},
-                                                       {'$set': {'state': 'RUNNING',
-                                                                 'updated_on': datetime.datetime.utcnow()}})
+                                                       {'$set':
+                                                            {'state': 'RUNNING',
+                                                             'updated_on': datetime.datetime.utcnow()
+                                                             }
+                                                        })
                 if f:
                     self._refresh_wf(fw_id)
+
+            if 'checkpoint' in offline_data:
+                m_launch.touch_history(checkpoint=offline_data['checkpoint'])
+                self.launches.find_one_and_replace({'launch_id': m_launch.launch_id},
+                                                   m_launch.to_db_dict(), upsert=True)
+
+            if 'fwaction' in offline_data:
+                fwaction = FWAction.from_dict(offline_data['fwaction'])
+                state = offline_data['state']
+                m_launch = Launch.from_dict(
+                    self.complete_launch(launch_id, fwaction, state))
+                for s in m_launch.state_history:
+                    if s['state'] == offline_data['state']:
+                        s['created_on'] = reconstitute_dates(offline_data['completed_on'])
+                self.launches.find_one_and_update({'launch_id': m_launch.launch_id},
+                                                  {'$set':
+                                                       {'state_history': m_launch.state_history}
+                                                  })
+                self.offline_runs.update_one({"launch_id": launch_id},
+                                             {"$set": {"completed": True}})
 
             # update the updated_on
             self.offline_runs.update_one({"launch_id": launch_id},
                                          {"$set": {"updated_on": datetime.datetime.utcnow().isoformat()}})
             return None
-
-        except Exception:
+        except:
             if print_errors:
                 self.m_logger.error("failed recovering launch_id {}.\n{}".format(
                     launch_id, traceback.format_exc()))
@@ -1963,7 +1951,7 @@ class LazyFirework(object):
 
     @property
     def full_fw(self):
-        # map(self._get_launch_data, self.db_launch_fields)
+        #map(self._get_launch_data, self.db_launch_fields)
         for launch_field in self.db_launch_fields:
             self._get_launch_data(launch_field)
         return self._fw
@@ -2002,7 +1990,7 @@ def get_action_from_gridfs(action_dict, fallback_fs):
     on its identifier, otherwise simply returns the dictionary in input.
     Should be used when accessing a launch to ensure the presence of the
     correct action dictionary.
-
+    
     Args:
         action_dict (dict): the dictionary contained in the "action" key of a launch
             document.
